@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, 
   Phone, 
@@ -41,12 +41,13 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
     loadSubcollections();
   }, [lead.lead_id]);
 
-  const loadSubcollections = async () => {
+  const loadSubcollections = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('Loading subcollections for lead:', lead.lead_id);
+      console.log('LeadDetailManagement: Loading subcollections for lead:', lead.lead_id);
+      console.log('LeadDetailManagement: Full lead object:', lead);
       const data = await LeadManagementService.getLeadWithSubcollections(lead.lead_id);
-      console.log('Loaded subcollections data:', data);
+      console.log('LeadDetailManagement: Loaded subcollections data:', data);
       
       setActivities(data.activities as any);
       setProposals(data.proposals as any);
@@ -54,15 +55,15 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
       setStatusHistory(data.statusHistory as any);
       setAuditLogs(data.auditLog as any);
       
-      console.log('Set activities:', data.activities.length);
-      console.log('Set proposals:', data.proposals.length);
-      console.log('Set contracts:', data.contracts.length);
+      console.log('LeadDetailManagement: Set activities:', data.activities.length);
+      console.log('LeadDetailManagement: Set proposals:', data.proposals.length);
+      console.log('LeadDetailManagement: Set contracts:', data.contracts.length);
     } catch (error) {
-      console.error('Error loading subcollections:', error);
+      console.error('LeadDetailManagement: Error loading subcollections:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [lead.lead_id]);
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return 'N/A';
@@ -112,6 +113,19 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+
+          {/* Debug Info */}
+          <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+            <h4 className="text-sm font-medium text-yellow-800 mb-2">Debug Info (LeadDetailManagement):</h4>
+            <div className="text-xs text-yellow-700">
+              <p>Lead ID: {lead.lead_id || 'NO LEAD_ID'}</p>
+              <p>Lead Name: {lead.first_name} {lead.last_name}</p>
+              <p>Activities Count: {activities.length}</p>
+              <p>Proposals Count: {proposals.length}</p>
+              <p>Contracts Count: {contracts.length}</p>
+              <p>Loading: {loading ? 'Yes' : 'No'}</p>
+            </div>
           </div>
 
           {/* Tabs */}

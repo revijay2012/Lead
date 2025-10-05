@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -102,9 +102,9 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
   const [accordionSections, setAccordionSections] = useState<AccordionSection[]>([
     { id: 'basic', title: 'Basic Information', icon: User, isOpen: true },
-    { id: 'activities', title: 'Activities', icon: Activity, isOpen: false },
-    { id: 'proposals', title: 'Proposals', icon: FileText, isOpen: false },
-    { id: 'contracts', title: 'Contracts', icon: FileCheck, isOpen: false }
+    { id: 'activities', title: 'Activities', icon: Activity, isOpen: true },
+    { id: 'proposals', title: 'Proposals', icon: FileText, isOpen: true },
+    { id: 'contracts', title: 'Contracts', icon: FileCheck, isOpen: true }
   ]);
 
   // Subcollection data
@@ -150,6 +150,7 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
   useEffect(() => {
     if (lead) {
+      console.log('EnhancedLeadForm: Lead loaded, setting form data:', lead);
       setFormData({
         first_name: lead.first_name || '',
         last_name: lead.last_name || '',
@@ -173,22 +174,30 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
       });
 
       // Load subcollections
+      console.log('EnhancedLeadForm: About to load subcollections for lead:', lead.lead_id);
       loadSubcollections();
     }
   }, [lead]);
 
-  const loadSubcollections = async () => {
+  const loadSubcollections = useCallback(async () => {
     if (!lead) return;
     
     try {
+      console.log('Loading subcollections for lead:', lead.lead_id);
       const data = await LeadManagementService.getLeadWithSubcollections(lead.lead_id);
+      console.log('Loaded subcollections data:', data);
+      
       setActivities(data.activities as ActivityType[]);
       setProposals(data.proposals as Proposal[]);
       setContracts(data.contracts as Contract[]);
+      
+      console.log('Set activities:', data.activities.length);
+      console.log('Set proposals:', data.proposals.length);
+      console.log('Set contracts:', data.contracts.length);
     } catch (error) {
       console.error('Error loading subcollections:', error);
     }
-  };
+  }, [lead]);
 
   const toggleAccordion = (sectionId: string) => {
     setAccordionSections(sections =>
@@ -462,6 +471,20 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
               <X className="h-6 w-6" />
             </button>
           </div>
+
+          {/* Debug Info */}
+          {lead && (
+            <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+              <h4 className="text-sm font-medium text-yellow-800 mb-2">Debug Info:</h4>
+              <div className="text-xs text-yellow-700">
+                <p>Lead ID: {lead.lead_id || 'NO LEAD_ID'}</p>
+                <p>Lead Name: {lead.first_name} {lead.last_name}</p>
+                <p>Activities Count: {activities.length}</p>
+                <p>Proposals Count: {proposals.length}</p>
+                <p>Contracts Count: {contracts.length}</p>
+              </div>
+            </div>
+          )}
 
           {/* Success Message */}
           {showSuccessMessage && savedLeadId && (
@@ -752,7 +775,17 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
                           {/* Existing Activities */}
                           <div>
-                            <h4 className="font-medium text-gray-900 mb-3">Existing Activities ({activities.length})</h4>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-medium text-gray-900">Existing Activities ({activities.length})</h4>
+                              <button
+                                type="button"
+                                onClick={loadSubcollections}
+                                className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
+                              >
+                                Reload
+                              </button>
+                            </div>
+                            {console.log('EnhancedLeadForm: Rendering activities, count:', activities.length, 'data:', activities)}
                             {activities.length === 0 ? (
                               <p className="text-gray-500 text-sm">No activities yet. Add one above!</p>
                             ) : (
@@ -772,11 +805,11 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                         <span>{formatDate(activity.timestamp)}</span>
                                         {activity.duration && <span>{activity.duration} min</span>}
                                         <span className={`px-2 py-1 rounded-full ${
-                                          activity.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                          activity.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                          (activity.status || 'completed') === 'completed' ? 'bg-green-100 text-green-800' :
+                                          (activity.status || 'completed') === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                                           'bg-red-100 text-red-800'
                                         }`}>
-                                          {activity.status}
+                                          {activity.status || 'completed'}
                                         </span>
                                       </div>
                                     </div>
@@ -872,7 +905,17 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
                           {/* Existing Proposals */}
                           <div>
-                            <h4 className="font-medium text-gray-900 mb-3">Existing Proposals ({proposals.length})</h4>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-medium text-gray-900">Existing Proposals ({proposals.length})</h4>
+                              <button
+                                type="button"
+                                onClick={loadSubcollections}
+                                className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
+                              >
+                                Reload
+                              </button>
+                            </div>
+                            {console.log('EnhancedLeadForm: Rendering proposals, count:', proposals.length, 'data:', proposals)}
                             {proposals.length === 0 ? (
                               <p className="text-gray-500 text-sm">No proposals yet. Add one above!</p>
                             ) : (
@@ -896,10 +939,10 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                         <p className="text-sm text-gray-600 mb-2">{proposal.description}</p>
                                       )}
                                       <div className="flex items-center text-xs text-gray-500 space-x-4">
-                                        <span>{formatDate(proposal.sent_at)}</span>
-                                        {proposal.amount && (
+                                        <span>{formatDate(proposal.sent_at || proposal.created_at)}</span>
+                                        {(proposal.amount || proposal.value) && (
                                           <span className="font-medium">
-                                            {formatCurrency(proposal.amount, proposal.currency || 'USD')}
+                                            {formatCurrency(proposal.amount || proposal.value, proposal.currency || 'USD')}
                                           </span>
                                         )}
                                       </div>
@@ -1041,9 +1084,9 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                       <div className="flex items-center text-xs text-gray-500 space-x-4">
                                         <span>Start: {formatDate(contract.start_date)}</span>
                                         <span>End: {formatDate(contract.end_date)}</span>
-                                        {contract.amount && (
+                                        {(contract.amount || contract.value) && (
                                           <span className="font-medium">
-                                            {formatCurrency(contract.amount, contract.currency || 'USD')}
+                                            {formatCurrency(contract.amount || contract.value, contract.currency || 'USD')}
                                           </span>
                                         )}
                                       </div>

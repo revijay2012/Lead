@@ -331,24 +331,70 @@ export class LeadManagementService {
   // Get lead with all subcollections
   static async getLeadWithSubcollections(leadId: string) {
     try {
-      // Get all subcollections
+      console.log('LeadManagementService: getLeadWithSubcollections called with leadId:', leadId);
+      
+      // First, we need to find the actual document ID for this lead_id
+      // The leadId parameter might be the lead_id field, but subcollections are stored under document ID
+      let documentId = leadId;
+      
+      // If leadId looks like L-20251005-215 format, we need to find the actual document ID
+      if (leadId.startsWith('L-')) {
+        console.log('LeadManagementService: leadId is in L- format, finding document ID...');
+        const leadsQuery = query(collection(db, 'leads'), where('lead_id', '==', leadId));
+        const leadDocs = await getDocs(leadsQuery);
+        
+        if (leadDocs.empty) {
+          console.log('LeadManagementService: No lead found with lead_id:', leadId);
+          return {
+            activities: [],
+            proposals: [],
+            contracts: [],
+            statusHistory: [],
+            auditLog: []
+          };
+        }
+        
+        documentId = leadDocs.docs[0].id;
+        console.log('LeadManagementService: Found document ID:', documentId);
+      }
+      
+      // Get all subcollections using the document ID
       const [activities, proposals, contracts, statusHistory, auditLog] = await Promise.all([
-        getDocs(collection(db, 'leads', leadId, 'activities')),
-        getDocs(collection(db, 'leads', leadId, 'proposals')),
-        getDocs(collection(db, 'leads', leadId, 'contracts')),
-        getDocs(collection(db, 'leads', leadId, 'status_history')),
-        getDocs(collection(db, 'leads', leadId, 'audit_log'))
+        getDocs(collection(db, 'leads', documentId, 'activities')),
+        getDocs(collection(db, 'leads', documentId, 'proposals')),
+        getDocs(collection(db, 'leads', documentId, 'contracts')),
+        getDocs(collection(db, 'leads', documentId, 'status_history')),
+        getDocs(collection(db, 'leads', documentId, 'audit_log'))
       ]);
 
-      return {
+      console.log('LeadManagementService: Raw subcollection counts:', {
+        activities: activities.size,
+        proposals: proposals.size,
+        contracts: contracts.size,
+        statusHistory: statusHistory.size,
+        auditLog: auditLog.size
+      });
+
+      const result = {
         activities: activities.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         proposals: proposals.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         contracts: contracts.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         statusHistory: statusHistory.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         auditLog: auditLog.docs.map(doc => ({ id: doc.id, ...doc.data() }))
       };
+
+      console.log('LeadManagementService: Mapped result counts:', {
+        activities: result.activities.length,
+        proposals: result.proposals.length,
+        contracts: result.contracts.length,
+        statusHistory: result.statusHistory.length,
+        auditLog: result.auditLog.length
+      });
+
+      return result;
     } catch (error) {
-      console.error('Error getting lead with subcollections:', error);
+      console.error('LeadManagementService: Error getting lead with subcollections:', error);
+      console.error('LeadManagementService: Error details:', error.message);
       // Return empty arrays if there's an error
       return {
         activities: [],
