@@ -7,9 +7,9 @@ import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 const firebaseConfig = {
   // Configuration for local development with emulators
   apiKey: "demo-api-key",
-  authDomain: "demo-project.firebaseapp.com",
-  projectId: "demo-project",
-  storageBucket: "demo-project.appspot.com",
+  authDomain: "demo-no-project.firebaseapp.com",
+  projectId: "demo-no-project",
+  storageBucket: "demo-no-project.appspot.com",
   messagingSenderId: "123456789",
   appId: "1:123456789:web:abcdef123456"
 };
@@ -29,7 +29,7 @@ try {
   connectFunctionsEmulator(functions, 'localhost', 5002);
   console.log('✅ Connected to Firebase emulators');
 } catch (error) {
-  console.log('⚠️  Emulators already connected or not available');
+  console.log('⚠️  Emulators already connected or not available:', error.message);
 }
 
 export default app;

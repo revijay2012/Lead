@@ -166,6 +166,13 @@ export function LeadsList({ onViewLead, onEditLead }: LeadsListProps) {
                     </div>
                   )}
                 </div>
+                
+                {/* Document ID */}
+                <div className="mt-2 flex items-center text-xs text-gray-400">
+                  <span className="bg-gray-100 px-2 py-1 rounded font-mono">
+                    ID: {lead.lead_id}
+                  </span>
+                </div>
               </div>
               
               <div className="flex items-center space-x-2 ml-4">

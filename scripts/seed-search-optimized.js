@@ -4,9 +4,9 @@ import { getFirestore, collection, addDoc, connectFirestoreEmulator, doc, setDoc
 // Firebase configuration for emulator
 const firebaseConfig = {
   apiKey: "demo-api-key",
-  authDomain: "demo-project.firebaseapp.com",
-  projectId: "demo-project",
-  storageBucket: "demo-project.appspot.com",
+  authDomain: "demo-no-project.firebaseapp.com",
+  projectId: "demo-no-project",
+  storageBucket: "demo-no-project.appspot.com",
   messagingSenderId: "123456789",
   appId: "1:123456789:web:abcdef123456"
 };
@@ -299,6 +299,8 @@ function generateLead() {
   };
 
   // 🧠 3. Add normalized fields for easy range queries
+  leadData.first_name_lower = firstName.toLowerCase();
+  leadData.last_name_lower = lastName.toLowerCase();
   leadData.full_name_lower = leadData.full_name.toLowerCase();
   leadData.email_lower = email.toLowerCase();
   leadData.phone_digits = phone.replace(/\D/g, '');

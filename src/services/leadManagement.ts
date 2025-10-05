@@ -38,6 +38,45 @@ function generateSearchKeywords(text: string): string[] {
   return Array.from(keywords);
 }
 
+// Generate prefixes for search
+function generatePrefixes(str: string, maxLen = 15): string[] {
+  const normalized = str.toLowerCase().trim();
+  if (!normalized) return [];
+  
+  const tokens = [];
+  for (let i = 1; i <= Math.min(normalized.length, maxLen); i++) {
+    tokens.push(normalized.slice(0, i));
+  }
+  return tokens;
+}
+
+// Build search prefixes for a lead
+function buildSearchPrefixes(leadData: {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  company: string;
+}): string[] {
+  const first = (leadData.first_name || '').toLowerCase();
+  const last = (leadData.last_name || '').toLowerCase();
+  const full = `${first} ${last}`.trim();
+  const email = (leadData.email || '').toLowerCase();
+  const phone = (leadData.phone || '').replace(/\D/g, '');
+  const company = (leadData.company || '').toLowerCase();
+
+  const prefixes = new Set([
+    ...generatePrefixes(first),
+    ...generatePrefixes(last),
+    ...generatePrefixes(full),
+    ...generatePrefixes(email),
+    ...generatePrefixes(phone),
+    ...generatePrefixes(company)
+  ]);
+
+  return Array.from(prefixes);
+}
+
 // Lead Management Service
 export class LeadManagementService {
   
@@ -70,12 +109,14 @@ export class LeadManagementService {
       };
 
       // Add search keywords if text fields changed
-      if (updates.full_name || updates.email || updates.company) {
-        const searchPrefixes = [
-          ...generateSearchKeywords(updates.full_name || currentLead.full_name),
-          ...generateSearchKeywords(updates.email || currentLead.email),
-          ...generateSearchKeywords(updates.company || currentLead.company)
-        ];
+      if (updates.first_name || updates.last_name || updates.full_name || updates.email || updates.company) {
+        const searchPrefixes = buildSearchPrefixes({
+          first_name: updates.first_name || currentLead.first_name,
+          last_name: updates.last_name || currentLead.last_name,
+          email: updates.email || currentLead.email,
+          phone: updates.phone || currentLead.phone,
+          company: updates.company || currentLead.company
+        });
         updatedLeadData.search_prefixes = searchPrefixes;
       }
 
@@ -143,7 +184,7 @@ export class LeadManagementService {
   // Add activity to lead
   static async addActivity(
     leadId: string,
-    activityData: Omit<Activity, 'activity_id' | 'timestamp' | 'search_keywords' | 'lead_id' | 'lead_name' | 'lead_email'>,
+    activityData: Omit<Activity, 'activity_id' | 'timestamp' | 'search_keywords' | 'lead_id' | 'lead_name' | 'lead_email' | 'created_by'>,
     leadName: string,
     leadEmail: string,
     createdBy: string
@@ -152,25 +193,36 @@ export class LeadManagementService {
       const activity: Omit<Activity, 'activity_id'> = {
         ...activityData,
         timestamp: Timestamp.now(),
-        search_keywords: generateSearchKeywords(`${activityData.subject} ${activityData.notes}`),
+        search_keywords: generateSearchKeywords(`${activityData.subject} ${activityData.notes || ''}`),
         lead_id: leadId,
         lead_name: leadName,
         lead_email: leadEmail,
         created_by: createdBy
       };
 
+      console.log('Creating activity document:', activity);
       const docRef = await addDoc(collection(db, 'leads', leadId, 'activities'), activity);
+      console.log('Activity document created with ID:', docRef.id);
 
       // Create audit log
-      await this.createAuditLog(leadId, leadName, leadEmail, createdBy, 'subcollection_change', {
-        subcollection_type: 'activities',
-        subcollection_id: docRef.id,
-        reason: `Activity added: ${activityData.subject}`
-      });
+      try {
+        await this.createAuditLog(leadId, leadName, leadEmail, createdBy, 'subcollection_change', {
+          subcollection_type: 'activities',
+          subcollection_id: docRef.id,
+          reason: `Activity added: ${activityData.subject}`
+        });
+      } catch (auditError) {
+        console.warn('Failed to create audit log for activity:', auditError);
+        // Don't fail the whole operation if audit log fails
+      }
 
       return docRef.id;
     } catch (error) {
       console.error('Error adding activity:', error);
+      console.error('Activity data:', activityData);
+      console.error('Lead ID:', leadId);
+      console.error('Lead name:', leadName);
+      console.error('Lead email:', leadEmail);
       throw error;
     }
   }
@@ -245,7 +297,7 @@ export class LeadManagementService {
   }
 
   // Create audit log entry
-  private static async createAuditLog(
+  static async createAuditLog(
     leadId: string,
     leadName: string,
     leadEmail: string,

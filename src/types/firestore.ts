@@ -215,6 +215,10 @@ export interface SearchFilters {
     start: Timestamp;
     end: Timestamp;
   };
+  created_date_from?: Date;
+  created_date_to?: Date;
+  updated_date_from?: Date;
+  updated_date_to?: Date;
   entity_type?: 'lead' | 'activity' | 'proposal' | 'contract' | 'all';
 }
 

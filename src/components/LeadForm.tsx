@@ -84,6 +84,8 @@ export function LeadForm({ lead, isOpen, onClose, onSave }: LeadFormProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [customSource, setCustomSource] = useState('');
   const [customTag, setCustomTag] = useState('');
+  const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   // Initialize form data when lead changes
   useEffect(() => {
@@ -169,14 +171,12 @@ export function LeadForm({ lead, isOpen, onClose, onSave }: LeadFormProps) {
 
     setLoading(true);
     try {
-      const leadId = lead?.lead_id || generateLeadId();
       const now = Timestamp.now();
 
       // Build search prefixes for the lead data
       const searchPrefixes = buildSearchPrefixes(formData);
 
-      const leadData: Lead = {
-        lead_id: leadId,
+      const leadData: Omit<Lead, 'lead_id'> = {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
         full_name: `${formData.first_name.trim()} ${formData.last_name.trim()}`,
@@ -213,14 +213,22 @@ export function LeadForm({ lead, isOpen, onClose, onSave }: LeadFormProps) {
 
       if (lead) {
         // Update existing lead
-        await updateDoc(doc(db, 'leads', leadId), leadData);
+        const updatedLeadData = { ...leadData, lead_id: lead.lead_id };
+        await updateDoc(doc(db, 'leads', lead.lead_id), leadData);
+        setSavedLeadId(lead.lead_id);
+        setShowSuccessMessage(true);
+        onSave(updatedLeadData as Lead);
       } else {
         // Create new lead
-        await addDoc(collection(db, 'leads'), leadData);
+        const docRef = await addDoc(collection(db, 'leads'), leadData);
+        const newLead = { ...leadData, lead_id: docRef.id } as Lead;
+        setSavedLeadId(docRef.id);
+        setShowSuccessMessage(true);
+        onSave(newLead);
       }
 
-      onSave(leadData);
-      onClose();
+      // Don't close immediately - show success message first
+      // onClose();
     } catch (error) {
       console.error('Error saving lead:', error);
       setErrors({ submit: 'Failed to save lead. Please try again.' });
@@ -654,6 +662,41 @@ export function LeadForm({ lead, isOpen, onClose, onSave }: LeadFormProps) {
                 />
               </div>
             </div>
+
+            {/* Success Message */}
+            {showSuccessMessage && savedLeadId && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-green-800">
+                      {lead ? 'Lead Updated Successfully!' : 'Lead Created Successfully!'}
+                    </h3>
+                    <div className="mt-2 text-sm text-green-700">
+                      <p><strong>Document ID:</strong> <code className="bg-green-100 px-2 py-1 rounded text-xs font-mono">{savedLeadId}</code></p>
+                      <p className="mt-1">You can use this ID to search for the lead in your database.</p>
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSuccessMessage(false);
+                          setSavedLeadId(null);
+                          onClose();
+                        }}
+                        className="bg-green-100 text-green-800 px-3 py-1 rounded text-sm hover:bg-green-200 transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Error Message */}
             {errors.submit && (

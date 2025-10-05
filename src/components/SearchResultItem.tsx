@@ -203,6 +203,13 @@ export function SearchResultItem({ result, onSelect, searchTerm }: SearchResultI
             )}
           </div>
         )}
+
+        {/* Document ID */}
+        <div className="mt-2 flex items-center">
+          <span className="bg-gray-100 px-2 py-1 rounded text-xs font-mono text-gray-500">
+            ID: {result.id}
+          </span>
+        </div>
       </div>
 
       {/* Arrow */}
