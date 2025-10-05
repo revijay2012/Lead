@@ -1,0 +1,39 @@
+
+🔧 Complete Commands to Run Your Leads Management System
+Step 1: Kill any existing processes
+Step 2: Install dependencies (if needed)
+Step 3: Seed sample data
+Step 4: Start the application
+Alternative: Run in separate terminals
+If you prefer to run the services separately:
+Terminal 1 (Firebase Emulators):
+Terminal 2 (React App):
+npm run dev
+Terminal 3 (Seed Data - run once):
+Step 5: Access the application
+Main App: http://localhost:5173
+Firebase Emulator UI: http://127.0.0.1:4002
+Quick Start (All-in-One)
+full
+The application will be available at http://localhost:5173 with full CRUD capabilities for leads, activities, proposals, and contracts! 
+
+
+# 🚀 ONE COMMAND TO START EVERYTHING:
+./start.sh
+
+# This single command will:
+# ✅ Kill any existing processes
+# ✅ Start Firebase emulators (Firestore, Auth, Functions)
+# ✅ Clear old data
+# ✅ Seed 500 search-optimized leads with prefix-based search
+# ✅ Start React development server
+# ✅ Open your LEADS app at http://localhost:5173
+
+# 📋 Available Scripts:
+# npm run dev          - Start everything (same as ./start.sh)
+# npm run start        - Start everything (same as ./start.sh)
+# npm run dev:app      - Start only React app
+# npm run emulators    - Start only Firebase emulators
+# npm run seed:search  - Seed search-optimized data
+# npm run test:search  - Test search functionality
+# npm run clear        - Clear all data
