@@ -54,44 +54,144 @@ class SimpleSearchService {
     }
 
     const normalizedTerm = term.toLowerCase().trim();
+    const searchTerms = normalizedTerm.split(' ').filter(t => t.length > 0);
     
     try {
-      // Strategy 1: Try prefix search on full_name_lower
-      let q = query(
-        collection(db, 'leads'),
-        orderBy('full_name_lower'),
-        startAt(normalizedTerm),
-        endAt(normalizedTerm + '\uf8ff'),
-        limit(20)
-      );
+      let results: SearchResult[] = [];
+      
+      // Strategy 1: Try search_prefixes array (most comprehensive)
+      try {
+        let constraints = [
+          where('search_prefixes', 'array-contains', normalizedTerm)
+        ];
 
-      // Add status filter if provided
-      if (filters.status) {
-        q = query(
+        // Add status filter if provided
+        if (filters.status) {
+          constraints.push(where('status', '==', filters.status));
+        }
+
+        // Add date filters if provided
+        if (filters.created_date_from) {
+          constraints.push(where('created_at', '>=', Timestamp.fromDate(filters.created_date_from)));
+        }
+        if (filters.created_date_to) {
+          constraints.push(where('created_at', '<=', Timestamp.fromDate(filters.created_date_to)));
+        }
+        if (filters.updated_date_from) {
+          constraints.push(where('updated_at', '>=', Timestamp.fromDate(filters.updated_date_from)));
+        }
+        if (filters.updated_date_to) {
+          constraints.push(where('updated_at', '<=', Timestamp.fromDate(filters.updated_date_to)));
+        }
+
+        // Add source filter if provided
+        if (filters.source) {
+          constraints.push(where('source', '==', filters.source));
+        }
+
+        let q = query(
           collection(db, 'leads'),
-          where('status', '==', filters.status),
-          orderBy('full_name_lower'),
-          startAt(normalizedTerm),
-          endAt(normalizedTerm + '\uf8ff'),
+          ...constraints,
           limit(20)
         );
+
+        const snapshot = await getDocs(q);
+        results = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            type: 'lead' as const,
+            title: data.full_name || `${data.first_name} ${data.last_name}`,
+            subtitle: data.email,
+            status: data.status,
+            timestamp: data.created_at || Timestamp.now(),
+            lead_id: doc.id,
+            lead_name: data.full_name || `${data.first_name} ${data.last_name}`,
+            data: data
+          } as SearchResult;
+        });
+      } catch (prefixError) {
+        console.log('Prefix search failed, trying fallback methods:', prefixError);
       }
 
-      const snapshot = await getDocs(q);
-      let results = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          type: 'lead' as const,
-          title: data.full_name || `${data.first_name} ${data.last_name}`,
-          subtitle: data.email,
-          status: data.status,
-          timestamp: data.created_at || Timestamp.now(),
-          lead_id: doc.id,
-          lead_name: data.full_name || `${data.first_name} ${data.last_name}`,
-          data: data
-        } as SearchResult;
-      });
+      // Strategy 2: If no results or prefix search failed, try first name and last name
+      if (results.length === 0) {
+        const searchPromises = [];
+        
+        // Search by first name
+        if (searchTerms.length > 0) {
+          searchPromises.push(
+            query(
+              collection(db, 'leads'),
+              where('first_name_lower', '>=', searchTerms[0]),
+              where('first_name_lower', '<=', searchTerms[0] + '\uf8ff'),
+              limit(10)
+            )
+          );
+        }
+        
+        // Search by last name
+        if (searchTerms.length > 0) {
+          searchPromises.push(
+            query(
+              collection(db, 'leads'),
+              where('last_name_lower', '>=', searchTerms[0]),
+              where('last_name_lower', '<=', searchTerms[0] + '\uf8ff'),
+              limit(10)
+            )
+          );
+        }
+
+        // Search by full name
+        searchPromises.push(
+          query(
+            collection(db, 'leads'),
+            where('full_name_lower', '>=', normalizedTerm),
+            where('full_name_lower', '<=', normalizedTerm + '\uf8ff'),
+            limit(10)
+          )
+        );
+
+        // Search by email
+        if (normalizedTerm.includes('@')) {
+          searchPromises.push(
+            query(
+              collection(db, 'leads'),
+              where('email_lower', '>=', normalizedTerm),
+              where('email_lower', '<=', normalizedTerm + '\uf8ff'),
+              limit(10)
+            )
+          );
+        }
+
+        // Execute all searches
+        const snapshots = await Promise.all(
+          searchPromises.map(q => getDocs(q).catch(() => ({ docs: [] })))
+        );
+
+        // Combine results and remove duplicates
+        const allResults = new Map();
+        snapshots.forEach(snapshot => {
+          snapshot.docs.forEach(doc => {
+            if (!allResults.has(doc.id)) {
+              const data = doc.data();
+              allResults.set(doc.id, {
+                id: doc.id,
+                type: 'lead' as const,
+                title: data.full_name || `${data.first_name} ${data.last_name}`,
+                subtitle: data.email,
+                status: data.status,
+                timestamp: data.created_at || Timestamp.now(),
+                lead_id: doc.id,
+                lead_name: data.full_name || `${data.first_name} ${data.last_name}`,
+                data: data
+              } as SearchResult);
+            }
+          });
+        });
+
+        results = Array.from(allResults.values());
+      }
 
       // If no results from prefix search, try array-contains on search_prefixes
       if (results.length === 0) {

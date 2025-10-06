@@ -1,12 +1,12 @@
-const { initializeApp } = require('firebase/app');
-const { getFirestore, collection, getDocs, connectFirestoreEmulator, deleteDoc, doc } = require('firebase/firestore');
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, getDocs, connectFirestoreEmulator, deleteDoc, doc } from 'firebase/firestore';
 
 // Firebase configuration for emulator
 const firebaseConfig = {
   apiKey: "demo-api-key",
-  authDomain: "demo-project.firebaseapp.com",
-  projectId: "demo-project",
-  storageBucket: "demo-project.appspot.com",
+  authDomain: "demo-no-project.firebaseapp.com",
+  projectId: "demo-no-project",
+  storageBucket: "demo-no-project.appspot.com",
   messagingSenderId: "123456789",
   appId: "1:123456789:web:abcdef123456"
 };

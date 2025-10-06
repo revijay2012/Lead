@@ -20,6 +20,7 @@ import {
   AuditLog, 
   LeadVersion 
 } from '../types/firestore';
+import { StatusHistoryService } from './statusHistoryService';
 
 // Helper function to generate search keywords
 function generateSearchKeywords(text: string): string[] {
@@ -38,6 +39,45 @@ function generateSearchKeywords(text: string): string[] {
   return Array.from(keywords);
 }
 
+// Generate prefixes for search
+function generatePrefixes(str: string, maxLen = 15): string[] {
+  const normalized = str.toLowerCase().trim();
+  if (!normalized) return [];
+  
+  const tokens = [];
+  for (let i = 1; i <= Math.min(normalized.length, maxLen); i++) {
+    tokens.push(normalized.slice(0, i));
+  }
+  return tokens;
+}
+
+// Build search prefixes for a lead
+function buildSearchPrefixes(leadData: {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  company: string;
+}): string[] {
+  const first = (leadData.first_name || '').toLowerCase();
+  const last = (leadData.last_name || '').toLowerCase();
+  const full = `${first} ${last}`.trim();
+  const email = (leadData.email || '').toLowerCase();
+  const phone = (leadData.phone || '').replace(/\D/g, '');
+  const company = (leadData.company || '').toLowerCase();
+
+  const prefixes = new Set([
+    ...generatePrefixes(first),
+    ...generatePrefixes(last),
+    ...generatePrefixes(full),
+    ...generatePrefixes(email),
+    ...generatePrefixes(phone),
+    ...generatePrefixes(company)
+  ]);
+
+  return Array.from(prefixes);
+}
+
 // Lead Management Service
 export class LeadManagementService {
   
@@ -46,7 +86,8 @@ export class LeadManagementService {
     leadId: string, 
     updates: Partial<Lead>, 
     changedBy: string,
-    reason?: string
+    reason?: string,
+    options?: { comments?: string }
   ): Promise<void> {
     try {
       const batch = writeBatch(db);
@@ -62,6 +103,7 @@ export class LeadManagementService {
 
       // Check for status change
       const statusChanged = updates.status && updates.status !== currentLead.status;
+      const previousStatus = currentLead.status;
       
       // Prepare updated lead data
       const updatedLeadData = {
@@ -70,12 +112,14 @@ export class LeadManagementService {
       };
 
       // Add search keywords if text fields changed
-      if (updates.full_name || updates.email || updates.company) {
-        const searchPrefixes = [
-          ...generateSearchKeywords(updates.full_name || currentLead.full_name),
-          ...generateSearchKeywords(updates.email || currentLead.email),
-          ...generateSearchKeywords(updates.company || currentLead.company)
-        ];
+      if (updates.first_name || updates.last_name || updates.full_name || updates.email || updates.company) {
+        const searchPrefixes = buildSearchPrefixes({
+          first_name: updates.first_name || currentLead.first_name,
+          last_name: updates.last_name || currentLead.last_name,
+          email: updates.email || currentLead.email,
+          phone: updates.phone || currentLead.phone,
+          company: updates.company || currentLead.company
+        });
         updatedLeadData.search_prefixes = searchPrefixes;
       }
 
@@ -133,6 +177,32 @@ export class LeadManagementService {
       // Commit all changes
       await batch.commit();
       
+      // Record status change in status history if status changed
+      if (statusChanged && updates.status) {
+        try {
+          await StatusHistoryService.recordStatusChange(
+            leadId,
+            currentLead.full_name || `${currentLead.first_name} ${currentLead.last_name}`,
+            currentLead.email,
+            previousStatus,
+            updates.status,
+            changedBy,
+            reason || 'Status updated',
+            {
+              autoTriggered: false,
+              notes: reason,
+              comments: options?.comments,
+              previousData: { status: previousStatus },
+              newData: { status: updates.status }
+            }
+          );
+          console.log('Status change recorded in history');
+        } catch (historyError) {
+          console.warn('Failed to record status change in history:', historyError);
+          // Don't fail the main operation if history recording fails
+        }
+      }
+      
       console.log('Lead updated successfully with audit trail');
     } catch (error) {
       console.error('Error updating lead:', error);
@@ -143,7 +213,7 @@ export class LeadManagementService {
   // Add activity to lead
   static async addActivity(
     leadId: string,
-    activityData: Omit<Activity, 'activity_id' | 'timestamp' | 'search_keywords' | 'lead_id' | 'lead_name' | 'lead_email'>,
+    activityData: Omit<Activity, 'activity_id' | 'timestamp' | 'search_keywords' | 'lead_id' | 'lead_name' | 'lead_email' | 'created_by'>,
     leadName: string,
     leadEmail: string,
     createdBy: string
@@ -151,26 +221,39 @@ export class LeadManagementService {
     try {
       const activity: Omit<Activity, 'activity_id'> = {
         ...activityData,
+        subject_lower: activityData.subject.toLowerCase(),
+        notes_lower: (activityData.notes || '').toLowerCase(),
         timestamp: Timestamp.now(),
-        search_keywords: generateSearchKeywords(`${activityData.subject} ${activityData.notes}`),
+        search_keywords: generateSearchKeywords(`${activityData.subject} ${activityData.notes || ''}`),
         lead_id: leadId,
         lead_name: leadName,
         lead_email: leadEmail,
         created_by: createdBy
       };
 
+      console.log('Creating activity document:', activity);
       const docRef = await addDoc(collection(db, 'leads', leadId, 'activities'), activity);
+      console.log('Activity document created with ID:', docRef.id);
 
       // Create audit log
-      await this.createAuditLog(leadId, leadName, leadEmail, createdBy, 'subcollection_change', {
-        subcollection_type: 'activities',
-        subcollection_id: docRef.id,
-        reason: `Activity added: ${activityData.subject}`
-      });
+      try {
+        await this.createAuditLog(leadId, leadName, leadEmail, createdBy, 'subcollection_change', {
+          subcollection_type: 'activities',
+          subcollection_id: docRef.id,
+          reason: `Activity added: ${activityData.subject}`
+        });
+      } catch (auditError) {
+        console.warn('Failed to create audit log for activity:', auditError);
+        // Don't fail the whole operation if audit log fails
+      }
 
       return docRef.id;
     } catch (error) {
       console.error('Error adding activity:', error);
+      console.error('Activity data:', activityData);
+      console.error('Lead ID:', leadId);
+      console.error('Lead name:', leadName);
+      console.error('Lead email:', leadEmail);
       throw error;
     }
   }
@@ -245,7 +328,7 @@ export class LeadManagementService {
   }
 
   // Create audit log entry
-  private static async createAuditLog(
+  static async createAuditLog(
     leadId: string,
     leadName: string,
     leadEmail: string,
@@ -279,24 +362,70 @@ export class LeadManagementService {
   // Get lead with all subcollections
   static async getLeadWithSubcollections(leadId: string) {
     try {
-      // Get all subcollections
+      console.log('LeadManagementService: getLeadWithSubcollections called with leadId:', leadId);
+      
+      // First, we need to find the actual document ID for this lead_id
+      // The leadId parameter might be the lead_id field, but subcollections are stored under document ID
+      let documentId = leadId;
+      
+      // If leadId looks like L-20251005-215 format, we need to find the actual document ID
+      if (leadId.startsWith('L-')) {
+        console.log('LeadManagementService: leadId is in L- format, finding document ID...');
+        const leadsQuery = query(collection(db, 'leads'), where('lead_id', '==', leadId));
+        const leadDocs = await getDocs(leadsQuery);
+        
+        if (leadDocs.empty) {
+          console.log('LeadManagementService: No lead found with lead_id:', leadId);
+          return {
+            activities: [],
+            proposals: [],
+            contracts: [],
+            statusHistory: [],
+            auditLog: []
+          };
+        }
+        
+        documentId = leadDocs.docs[0].id;
+        console.log('LeadManagementService: Found document ID:', documentId);
+      }
+      
+      // Get all subcollections using the document ID
       const [activities, proposals, contracts, statusHistory, auditLog] = await Promise.all([
-        getDocs(collection(db, 'leads', leadId, 'activities')),
-        getDocs(collection(db, 'leads', leadId, 'proposals')),
-        getDocs(collection(db, 'leads', leadId, 'contracts')),
-        getDocs(collection(db, 'leads', leadId, 'status_history')),
-        getDocs(collection(db, 'leads', leadId, 'audit_log'))
+        getDocs(collection(db, 'leads', documentId, 'activities')),
+        getDocs(collection(db, 'leads', documentId, 'proposals')),
+        getDocs(collection(db, 'leads', documentId, 'contracts')),
+        getDocs(collection(db, 'leads', documentId, 'status_history')),
+        getDocs(collection(db, 'leads', documentId, 'audit_log'))
       ]);
 
-      return {
+      console.log('LeadManagementService: Raw subcollection counts:', {
+        activities: activities.size,
+        proposals: proposals.size,
+        contracts: contracts.size,
+        statusHistory: statusHistory.size,
+        auditLog: auditLog.size
+      });
+
+      const result = {
         activities: activities.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         proposals: proposals.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         contracts: contracts.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         statusHistory: statusHistory.docs.map(doc => ({ id: doc.id, ...doc.data() })),
         auditLog: auditLog.docs.map(doc => ({ id: doc.id, ...doc.data() }))
       };
+
+      console.log('LeadManagementService: Mapped result counts:', {
+        activities: result.activities.length,
+        proposals: result.proposals.length,
+        contracts: result.contracts.length,
+        statusHistory: result.statusHistory.length,
+        auditLog: result.auditLog.length
+      });
+
+      return result;
     } catch (error) {
-      console.error('Error getting lead with subcollections:', error);
+      console.error('LeadManagementService: Error getting lead with subcollections:', error);
+      console.error('LeadManagementService: Error details:', error.message);
       // Return empty arrays if there's an error
       return {
         activities: [],

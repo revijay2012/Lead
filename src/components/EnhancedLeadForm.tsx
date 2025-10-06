@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -22,7 +22,47 @@ import {
 } from 'lucide-react';
 import { Lead, Activity as ActivityType, Proposal, Contract, StatusHistory } from '../types/firestore';
 import { LeadManagementService } from '../services/leadManagement';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp, collection, addDoc } from 'firebase/firestore';
+import { db } from '../firebase/config';
+
+// Generate prefixes for search
+function generatePrefixes(str: string, maxLen = 15): string[] {
+  const normalized = str.toLowerCase().trim();
+  if (!normalized) return [];
+  
+  const tokens = [];
+  for (let i = 1; i <= Math.min(normalized.length, maxLen); i++) {
+    tokens.push(normalized.slice(0, i));
+  }
+  return tokens;
+}
+
+// Build search prefixes for a lead
+function buildSearchPrefixes(leadData: {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  company: string;
+}): string[] {
+  const first = (leadData.first_name || '').toLowerCase();
+  const last = (leadData.last_name || '').toLowerCase();
+  const full = `${first} ${last}`.trim();
+  const email = (leadData.email || '').toLowerCase();
+  const phone = (leadData.phone || '').replace(/\D/g, '');
+  const company = (leadData.company || '').toLowerCase();
+
+  const prefixes = new Set([
+    ...generatePrefixes(first),
+    ...generatePrefixes(last),
+    ...generatePrefixes(full),
+    ...generatePrefixes(email),
+    ...generatePrefixes(phone),
+    ...generatePrefixes(company)
+  ]);
+
+  return Array.from(prefixes);
+}
 
 interface EnhancedLeadFormProps {
   lead: Lead | null;
@@ -62,9 +102,9 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
   const [accordionSections, setAccordionSections] = useState<AccordionSection[]>([
     { id: 'basic', title: 'Basic Information', icon: User, isOpen: true },
-    { id: 'activities', title: 'Activities', icon: Activity, isOpen: false },
-    { id: 'proposals', title: 'Proposals', icon: FileText, isOpen: false },
-    { id: 'contracts', title: 'Contracts', icon: FileCheck, isOpen: false }
+    { id: 'activities', title: 'Activities', icon: Activity, isOpen: true },
+    { id: 'proposals', title: 'Proposals', icon: FileText, isOpen: true },
+    { id: 'contracts', title: 'Contracts', icon: FileCheck, isOpen: true }
   ]);
 
   // Subcollection data
@@ -79,7 +119,8 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
     notes: '',
     status: 'completed' as const,
     priority: 'medium' as const,
-    duration: ''
+    duration: '',
+    outcome: ''
   });
 
   const [newProposal, setNewProposal] = useState({
@@ -104,9 +145,12 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
   });
 
   const [loading, setLoading] = useState(false);
+  const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   useEffect(() => {
     if (lead) {
+      console.log('EnhancedLeadForm: Lead loaded, setting form data:', lead);
       setFormData({
         first_name: lead.first_name || '',
         last_name: lead.last_name || '',
@@ -130,22 +174,30 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
       });
 
       // Load subcollections
+      console.log('EnhancedLeadForm: About to load subcollections for lead:', lead.lead_id);
       loadSubcollections();
     }
   }, [lead]);
 
-  const loadSubcollections = async () => {
+  const loadSubcollections = useCallback(async () => {
     if (!lead) return;
     
     try {
+      console.log('Loading subcollections for lead:', lead.lead_id);
       const data = await LeadManagementService.getLeadWithSubcollections(lead.lead_id);
+      console.log('Loaded subcollections data:', data);
+      
       setActivities(data.activities as ActivityType[]);
       setProposals(data.proposals as Proposal[]);
       setContracts(data.contracts as Contract[]);
+      
+      console.log('Set activities:', data.activities.length);
+      console.log('Set proposals:', data.proposals.length);
+      console.log('Set contracts:', data.contracts.length);
     } catch (error) {
       console.error('Error loading subcollections:', error);
     }
-  };
+  }, [lead]);
 
   const toggleAccordion = (sectionId: string) => {
     setAccordionSections(sections =>
@@ -182,6 +234,15 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
       const fullName = `${formData.first_name} ${formData.last_name}`;
       const phoneDigits = formData.phone.replace(/\D/g, '');
       
+      // Generate search prefixes
+      const searchPrefixes = buildSearchPrefixes({
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        phone: formData.phone,
+        company: formData.company
+      });
+      
       const leadData = {
         ...formData,
         full_name: fullName,
@@ -191,20 +252,32 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
         company_lower: formData.company.toLowerCase(),
         updated_at: Timestamp.now(),
         created_at: lead?.created_at || Timestamp.now(),
-        search_prefixes: [], // Will be generated by the service
+        search_prefixes: searchPrefixes,
       };
 
       if (lead) {
+        // Update existing lead
         await LeadManagementService.updateLead(
           lead.lead_id,
           leadData,
           'Current User',
           'Lead updated via enhanced form'
         );
+        setSavedLeadId(lead.lead_id);
+        setShowSuccessMessage(true);
         onSave({ ...lead, ...leadData });
+      } else {
+        // Create new lead
+        const leadsRef = collection(db, 'leads');
+        const docRef = await addDoc(leadsRef, leadData);
+        const newLead = { ...leadData, lead_id: docRef.id } as Lead;
+        setSavedLeadId(docRef.id);
+        setShowSuccessMessage(true);
+        onSave(newLead);
       }
 
-      onClose();
+      // Don't close immediately - show success message first
+      // onClose();
     } catch (error) {
       console.error('Error saving lead:', error);
       alert('Failed to save lead. Please try again.');
@@ -214,21 +287,28 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
   };
 
   const addActivity = async () => {
-    if (!lead || !newActivity.subject.trim()) {
-      console.log('Missing lead or subject:', { lead: !!lead, subject: newActivity.subject });
+    if (!newActivity.subject.trim()) {
+      alert('Please enter an activity subject.');
+      return;
+    }
+
+    if (!lead) {
+      alert('Cannot add activity: Lead must be saved first. Please save the lead before adding activities.');
       return;
     }
 
     try {
       console.log('Adding activity for lead:', lead.lead_id);
       const activityData = {
-        ...newActivity,
+        type: newActivity.type,
+        subject: newActivity.subject,
         subject_lower: newActivity.subject.toLowerCase(),
+        notes: newActivity.notes,
         notes_lower: newActivity.notes.toLowerCase(),
         duration: newActivity.duration ? parseInt(newActivity.duration) : undefined,
-        created_by: 'Current User',
-        timestamp: Timestamp.now(),
-        search_keywords: []
+        status: newActivity.status,
+        priority: newActivity.priority,
+        outcome: newActivity.outcome || ''
       };
 
       console.log('Activity data:', activityData);
@@ -248,7 +328,8 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
         notes: '',
         status: 'completed',
         priority: 'medium',
-        duration: ''
+        duration: '',
+        outcome: ''
       });
 
       await loadSubcollections();
@@ -260,27 +341,41 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
   };
 
   const addProposal = async () => {
-    if (!lead || !newProposal.title.trim()) return;
+    if (!newProposal.title.trim()) {
+      alert('Please enter a proposal title.');
+      return;
+    }
+
+    if (!lead) {
+      alert('Cannot add proposal: Lead must be saved first. Please save the lead before adding proposals.');
+      return;
+    }
 
     try {
       const proposalData = {
-        ...newProposal,
+        title: newProposal.title,
         title_lower: newProposal.title.toLowerCase(),
+        description: newProposal.description,
         description_lower: newProposal.description?.toLowerCase(),
+        status: newProposal.status,
         amount: newProposal.amount ? parseFloat(newProposal.amount) : undefined,
+        currency: newProposal.currency,
         valid_until: newProposal.valid_until ? Timestamp.fromDate(new Date(newProposal.valid_until)) : undefined,
-        sent_at: Timestamp.now(),
-        created_by: 'Current User',
-        search_keywords: []
+        terms: newProposal.terms
       };
 
-      await LeadManagementService.addProposal(
+      console.log('Adding proposal for lead:', lead.lead_id);
+      console.log('Proposal data:', proposalData);
+      
+      const proposalId = await LeadManagementService.addProposal(
         lead.lead_id,
         proposalData,
         lead.full_name,
         lead.email,
         'Current User'
       );
+
+      console.log('Proposal added successfully with ID:', proposalId);
 
       setNewProposal({
         title: '',
@@ -292,14 +387,24 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
         terms: ''
       });
 
-      loadSubcollections();
+      await loadSubcollections();
+      console.log('Subcollections reloaded');
     } catch (error) {
       console.error('Error adding proposal:', error);
+      alert('Failed to add proposal. Please check the console for details.');
     }
   };
 
   const addContract = async () => {
-    if (!lead || !newContract.title.trim()) return;
+    if (!newContract.title.trim()) {
+      alert('Please enter a contract title.');
+      return;
+    }
+
+    if (!lead) {
+      alert('Cannot add contract: Lead must be saved first. Please save the lead before adding contracts.');
+      return;
+    }
 
     try {
       const contractData = {
@@ -366,6 +471,55 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
               <X className="h-6 w-6" />
             </button>
           </div>
+
+          {/* Debug Info */}
+          {lead && (
+            <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+              <h4 className="text-sm font-medium text-yellow-800 mb-2">Debug Info:</h4>
+              <div className="text-xs text-yellow-700">
+                <p>Lead ID: {lead.lead_id || 'NO LEAD_ID'}</p>
+                <p>Lead Name: {lead.first_name} {lead.last_name}</p>
+                <p>Activities Count: {activities.length}</p>
+                <p>Proposals Count: {proposals.length}</p>
+                <p>Contracts Count: {contracts.length}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Success Message */}
+          {showSuccessMessage && savedLeadId && (
+            <div className="p-6 bg-green-50 border-b border-green-200">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-green-800">
+                    {lead ? 'Lead Updated Successfully!' : 'Lead Created Successfully!'}
+                  </h3>
+                  <div className="mt-2 text-sm text-green-700">
+                    <p><strong>Document ID:</strong> <code className="bg-green-100 px-2 py-1 rounded text-xs font-mono">{savedLeadId}</code></p>
+                    <p className="mt-1">You can use this ID to search for the lead in your database.</p>
+                  </div>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSuccessMessage(false);
+                        setSavedLeadId(null);
+                        onClose();
+                      }}
+                      className="bg-green-100 text-green-800 px-3 py-1 rounded text-sm hover:bg-green-200 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6">
@@ -539,15 +693,19 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                       {section.id === 'activities' && (
                         <div className="space-y-4">
                           {/* Add New Activity */}
-                          <div className="bg-blue-50 p-4 rounded-lg">
-                            <h4 className="font-medium text-blue-900 mb-3">Add New Activity</h4>
+                          <div className={`p-4 rounded-lg ${lead ? 'bg-blue-50' : 'bg-gray-50 opacity-60'}`}>
+                            <h4 className={`font-medium mb-3 ${lead ? 'text-blue-900' : 'text-gray-500'}`}>
+                              Add New Activity
+                              {!lead && <span className="ml-2 text-xs text-gray-400">(Save lead first)</span>}
+                            </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                                 <select
                                   value={newActivity.type}
                                   onChange={(e) => setNewActivity(prev => ({ ...prev, type: e.target.value as any }))}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                  disabled={!lead}
+                                  className={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm ${!lead ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                 >
                                   <option value="call">Call</option>
                                   <option value="email">Email</option>
@@ -562,7 +720,8 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                   type="text"
                                   value={newActivity.subject}
                                   onChange={(e) => setNewActivity(prev => ({ ...prev, subject: e.target.value }))}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                  disabled={!lead}
+                                  className={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm ${!lead ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                   placeholder="Activity subject"
                                 />
                               </div>
@@ -602,7 +761,12 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                             <button
                               type="button"
                               onClick={addActivity}
-                              className="mt-3 inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                              disabled={!lead}
+                              className={`mt-3 inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md ${
+                                lead 
+                                  ? 'text-white bg-blue-600 hover:bg-blue-700' 
+                                  : 'text-gray-400 bg-gray-300 cursor-not-allowed'
+                              }`}
                             >
                               <Plus className="h-4 w-4 mr-2" />
                               Add Activity
@@ -611,7 +775,17 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
                           {/* Existing Activities */}
                           <div>
-                            <h4 className="font-medium text-gray-900 mb-3">Existing Activities ({activities.length})</h4>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-medium text-gray-900">Existing Activities ({activities.length})</h4>
+                              <button
+                                type="button"
+                                onClick={loadSubcollections}
+                                className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
+                              >
+                                Reload
+                              </button>
+                            </div>
+                            {console.log('EnhancedLeadForm: Rendering activities, count:', activities.length, 'data:', activities)}
                             {activities.length === 0 ? (
                               <p className="text-gray-500 text-sm">No activities yet. Add one above!</p>
                             ) : (
@@ -631,11 +805,11 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                         <span>{formatDate(activity.timestamp)}</span>
                                         {activity.duration && <span>{activity.duration} min</span>}
                                         <span className={`px-2 py-1 rounded-full ${
-                                          activity.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                          activity.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                          (activity.status || 'completed') === 'completed' ? 'bg-green-100 text-green-800' :
+                                          (activity.status || 'completed') === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                                           'bg-red-100 text-red-800'
                                         }`}>
-                                          {activity.status}
+                                          {activity.status || 'completed'}
                                         </span>
                                       </div>
                                     </div>
@@ -731,7 +905,17 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
 
                           {/* Existing Proposals */}
                           <div>
-                            <h4 className="font-medium text-gray-900 mb-3">Existing Proposals ({proposals.length})</h4>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-medium text-gray-900">Existing Proposals ({proposals.length})</h4>
+                              <button
+                                type="button"
+                                onClick={loadSubcollections}
+                                className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
+                              >
+                                Reload
+                              </button>
+                            </div>
+                            {console.log('EnhancedLeadForm: Rendering proposals, count:', proposals.length, 'data:', proposals)}
                             {proposals.length === 0 ? (
                               <p className="text-gray-500 text-sm">No proposals yet. Add one above!</p>
                             ) : (
@@ -755,10 +939,10 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                         <p className="text-sm text-gray-600 mb-2">{proposal.description}</p>
                                       )}
                                       <div className="flex items-center text-xs text-gray-500 space-x-4">
-                                        <span>{formatDate(proposal.sent_at)}</span>
-                                        {proposal.amount && (
+                                        <span>{formatDate(proposal.sent_at || proposal.created_at)}</span>
+                                        {(proposal.amount || proposal.value) && (
                                           <span className="font-medium">
-                                            {formatCurrency(proposal.amount, proposal.currency || 'USD')}
+                                            {formatCurrency(proposal.amount || proposal.value, proposal.currency || 'USD')}
                                           </span>
                                         )}
                                       </div>
@@ -900,9 +1084,9 @@ export const EnhancedLeadForm: React.FC<EnhancedLeadFormProps> = ({ lead, onSave
                                       <div className="flex items-center text-xs text-gray-500 space-x-4">
                                         <span>Start: {formatDate(contract.start_date)}</span>
                                         <span>End: {formatDate(contract.end_date)}</span>
-                                        {contract.amount && (
+                                        {(contract.amount || contract.value) && (
                                           <span className="font-medium">
-                                            {formatCurrency(contract.amount, contract.currency || 'USD')}
+                                            {formatCurrency(contract.amount || contract.value, contract.currency || 'USD')}
                                           </span>
                                         )}
                                       </div>

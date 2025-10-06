@@ -285,6 +285,42 @@ export function LeadDetailView({ leadId, isOpen, onClose, onLeadUpdate, onLeadDe
                     </div>
                   </div>
 
+                  {/* Document ID Information */}
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <h3 className="text-lg font-medium text-blue-900 mb-3">Database Information</h3>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-blue-800">Document ID:</span>
+                        <code className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-xs font-mono">
+                          {lead.lead_id}
+                        </code>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-blue-800">Created:</span>
+                        <span className="text-sm text-blue-700">
+                          {lead.created_at ? 
+                            (lead.created_at.toDate ? lead.created_at.toDate().toLocaleDateString() : new Date(lead.created_at).toLocaleDateString()) 
+                            : 'N/A'
+                          }
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-blue-800">Last Updated:</span>
+                        <span className="text-sm text-blue-700">
+                          {lead.updated_at ? 
+                            (lead.updated_at.toDate ? lead.updated_at.toDate().toLocaleDateString() : new Date(lead.updated_at).toLocaleDateString()) 
+                            : 'N/A'
+                          }
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-xs text-blue-600">
+                        💡 Use this Document ID to search for this lead directly in your Firestore database.
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Status & Details</h3>
                     <div className="space-y-3">

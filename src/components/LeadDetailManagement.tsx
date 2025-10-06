@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Calendar, 
   Phone, 
@@ -20,6 +20,9 @@ import {
 import { Lead, Activity as ActivityType, Proposal, Contract, StatusHistory, AuditLog } from '../types/firestore';
 import { LeadManagementService } from '../services/leadManagement';
 import { ActivityForm } from './ActivityForm';
+import { StatusHistoryView } from './StatusHistoryView';
+import { StatusChangeDialog } from './StatusChangeDialog';
+import { NotesAccordion } from './NotesAccordion';
 import { Timestamp } from 'firebase/firestore';
 
 interface LeadDetailManagementProps {
@@ -35,18 +38,20 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
   const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
   const [showActivityForm, setShowActivityForm] = useState(false);
 
   useEffect(() => {
     loadSubcollections();
   }, [lead.lead_id]);
 
-  const loadSubcollections = async () => {
+  const loadSubcollections = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('Loading subcollections for lead:', lead.lead_id);
+      console.log('LeadDetailManagement: Loading subcollections for lead:', lead.lead_id);
+      console.log('LeadDetailManagement: Full lead object:', lead);
       const data = await LeadManagementService.getLeadWithSubcollections(lead.lead_id);
-      console.log('Loaded subcollections data:', data);
+      console.log('LeadDetailManagement: Loaded subcollections data:', data);
       
       setActivities(data.activities as any);
       setProposals(data.proposals as any);
@@ -54,15 +59,15 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
       setStatusHistory(data.statusHistory as any);
       setAuditLogs(data.auditLog as any);
       
-      console.log('Set activities:', data.activities.length);
-      console.log('Set proposals:', data.proposals.length);
-      console.log('Set contracts:', data.contracts.length);
+      console.log('LeadDetailManagement: Set activities:', data.activities.length);
+      console.log('LeadDetailManagement: Set proposals:', data.proposals.length);
+      console.log('LeadDetailManagement: Set contracts:', data.contracts.length);
     } catch (error) {
-      console.error('Error loading subcollections:', error);
+      console.error('LeadDetailManagement: Error loading subcollections:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [lead.lead_id]);
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return 'N/A';
@@ -83,9 +88,50 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
     }
   };
 
+  const handleStatusChange = async (newStatus: string, reason: string, comments: string, notes: string) => {
+    try {
+      await LeadManagementService.updateLead(lead.lead_id, 
+        { status: newStatus as any },
+        'system', // TODO: Replace with actual user
+        reason,
+        { comments }
+      );
+      
+      // If notes are provided, create a separate activity entry
+      if (notes.trim()) {
+        try {
+          await LeadManagementService.addActivity(
+            lead.lead_id,
+            {
+              type: 'note',
+              subject: `Status change note: ${reason}`,
+              notes: notes.trim(),
+              timestamp: new Date()
+            },
+            lead.full_name || `${lead.first_name} ${lead.last_name}`,
+            lead.email,
+            'system' // TODO: Replace with actual user
+          );
+        } catch (activityError) {
+          console.warn('Failed to create note activity:', activityError);
+          // Don't fail the main status update if note creation fails
+        }
+      }
+      
+      // Reload subcollections to show updated status history and activities
+      await loadSubcollections();
+      
+      // Update the lead object locally to reflect the change
+      lead.status = newStatus as any;
+    } catch (error) {
+      console.error('Error updating lead status:', error);
+      throw error;
+    }
+  };
+
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Eye },
-    { id: 'activities', label: `Activities (${activities.length})`, icon: Activity },
+    { id: 'activities', label: `Activities (${activities.filter(a => a.type !== 'note').length})`, icon: Activity },
     { id: 'proposals', label: `Proposals (${proposals.length})`, icon: FileText },
     { id: 'contracts', label: `Contracts (${contracts.length})`, icon: FileCheck },
     { id: 'history', label: `Status History (${statusHistory.length})`, icon: History },
@@ -112,6 +158,19 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+
+          {/* Debug Info */}
+          <div className="p-4 bg-yellow-50 border-b border-yellow-200">
+            <h4 className="text-sm font-medium text-yellow-800 mb-2">Debug Info (LeadDetailManagement):</h4>
+            <div className="text-xs text-yellow-700">
+              <p>Lead ID: {lead.lead_id || 'NO LEAD_ID'}</p>
+              <p>Lead Name: {lead.first_name} {lead.last_name}</p>
+              <p>Activities Count: {activities.length}</p>
+              <p>Proposals Count: {proposals.length}</p>
+              <p>Contracts Count: {contracts.length}</p>
+              <p>Loading: {loading ? 'Yes' : 'No'}</p>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -180,11 +239,20 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
                     <div>
                       <h4 className="text-lg font-medium text-gray-900 mb-4">Lead Information</h4>
                       <div className="space-y-3">
-                        <div>
-                          <span className="text-sm font-medium text-gray-500">Status</span>
-                          <span className={`ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
-                            {lead.status}
-                          </span>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <span className="text-sm font-medium text-gray-500">Status</span>
+                            <span className={`ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
+                              {lead.status}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setShowStatusChangeDialog(true)}
+                            className="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Change
+                          </button>
                         </div>
                         <div>
                           <span className="text-sm font-medium text-gray-500">Stage</span>
@@ -220,8 +288,17 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
                         Add Activity
                       </button>
                     </div>
+
+                    {/* Notes Accordion */}
+                    <div className="mb-6">
+                      <NotesAccordion 
+                        leadId={lead.lead_id} 
+                        leadName={lead.full_name || `${lead.first_name} ${lead.last_name}`}
+                        leadEmail={lead.email}
+                      />
+                    </div>
                     <div className="space-y-4">
-                      {activities.map((activity) => (
+                      {activities.filter(activity => activity.type !== 'note').map((activity) => (
                         <div key={activity.activity_id} className="bg-gray-50 p-4 rounded-lg">
                           <div className="flex justify-between items-start">
                             <div>
@@ -360,37 +437,11 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
 
                 {/* Status History Tab */}
                 {activeTab === 'history' && (
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Status History</h4>
-                    <div className="space-y-4">
-                      {statusHistory.map((history) => (
-                        <div key={history.event_id} className="bg-gray-50 p-4 rounded-lg">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(history.from_status)}`}>
-                                {history.from_status}
-                              </span>
-                              <span className="mx-2 text-gray-400">→</span>
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(history.to_status)}`}>
-                                {history.to_status}
-                              </span>
-                              <p className="text-sm text-gray-600 mt-1">{history.transition_reason}</p>
-                            </div>
-                            <div className="text-right text-xs text-gray-500">
-                              <div>{formatDate(history.timestamp)}</div>
-                              <div>{history.changed_by}</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {statusHistory.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                          <History className="mx-auto h-12 w-12 text-gray-400" />
-                          <p className="mt-2">No status changes recorded</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <StatusHistoryView
+                    leadId={lead.lead_id}
+                    leadName={lead.full_name || `${lead.first_name} ${lead.last_name}`}
+                    leadEmail={lead.email}
+                  />
                 )}
 
                 {/* Audit Log Tab */}
@@ -460,6 +511,15 @@ export function LeadDetailManagement({ lead, onClose }: LeadDetailManagementProp
             }}
           />
         )}
+
+        {/* Status Change Dialog */}
+        <StatusChangeDialog
+          isOpen={showStatusChangeDialog}
+          onClose={() => setShowStatusChangeDialog(false)}
+          onSave={handleStatusChange}
+          currentStatus={lead.status}
+          leadName={lead.full_name || `${lead.first_name} ${lead.last_name}`}
+        />
       </div>
     </div>
   );
