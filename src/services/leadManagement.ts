@@ -20,6 +20,7 @@ import {
   AuditLog, 
   LeadVersion 
 } from '../types/firestore';
+import { StatusHistoryService } from './statusHistoryService';
 
 // Helper function to generate search keywords
 function generateSearchKeywords(text: string): string[] {
@@ -85,7 +86,8 @@ export class LeadManagementService {
     leadId: string, 
     updates: Partial<Lead>, 
     changedBy: string,
-    reason?: string
+    reason?: string,
+    options?: { comments?: string }
   ): Promise<void> {
     try {
       const batch = writeBatch(db);
@@ -101,6 +103,7 @@ export class LeadManagementService {
 
       // Check for status change
       const statusChanged = updates.status && updates.status !== currentLead.status;
+      const previousStatus = currentLead.status;
       
       // Prepare updated lead data
       const updatedLeadData = {
@@ -174,6 +177,32 @@ export class LeadManagementService {
       // Commit all changes
       await batch.commit();
       
+      // Record status change in status history if status changed
+      if (statusChanged && updates.status) {
+        try {
+          await StatusHistoryService.recordStatusChange(
+            leadId,
+            currentLead.full_name || `${currentLead.first_name} ${currentLead.last_name}`,
+            currentLead.email,
+            previousStatus,
+            updates.status,
+            changedBy,
+            reason || 'Status updated',
+            {
+              autoTriggered: false,
+              notes: reason,
+              comments: options?.comments,
+              previousData: { status: previousStatus },
+              newData: { status: updates.status }
+            }
+          );
+          console.log('Status change recorded in history');
+        } catch (historyError) {
+          console.warn('Failed to record status change in history:', historyError);
+          // Don't fail the main operation if history recording fails
+        }
+      }
+      
       console.log('Lead updated successfully with audit trail');
     } catch (error) {
       console.error('Error updating lead:', error);
@@ -192,6 +221,8 @@ export class LeadManagementService {
     try {
       const activity: Omit<Activity, 'activity_id'> = {
         ...activityData,
+        subject_lower: activityData.subject.toLowerCase(),
+        notes_lower: (activityData.notes || '').toLowerCase(),
         timestamp: Timestamp.now(),
         search_keywords: generateSearchKeywords(`${activityData.subject} ${activityData.notes || ''}`),
         lead_id: leadId,

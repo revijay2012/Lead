@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "./start.sh",
-    "start": "./start.sh",
+    "start": "vite",
+    "start:full": "./start.sh",
     "dev:app": "vite",
     "emulators": "firebase emulators:start",
     "build": "vite build",
@@ -14,6 +15,8 @@
     "lint": "eslint src --ext js,jsx,ts,tsx",
     "type-check": "tsc --noEmit",
         "seed:search": "node scripts/seed-search-optimized.js",
+        "seed:sample": "node scripts/seed-sample-data.js",
+        "seed:background": "node scripts/seed-background-data.js",
         "test:search": "node scripts/test-search-queries.js",
         "test:subcollection": "node scripts/test-subcollection-search.js",
         "clear": "node scripts/clear-data.js"

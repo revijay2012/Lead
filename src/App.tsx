@@ -1,21 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Users, Loader2, Filter, X } from 'lucide-react';
-import { TestConnection } from './components/TestConnection';
 import { LeadsList } from './components/LeadsList';
 import { LeadDetailManagement } from './components/LeadDetailManagement';
 import { EnhancedLeadForm } from './components/EnhancedLeadForm';
 import { LeadSearchGrid } from './components/LeadSearchGrid';
 import { EnhancedSearchWithFilters } from './components/EnhancedSearchWithFilters';
+import { SubcollectionSearch } from './components/SubcollectionSearch';
+import { ReportsMenu } from './components/ReportsMenu';
+import { LeadFunnelReport } from './components/LeadFunnelReport';
 import { Lead } from './types/firestore';
 import { collection, getDocs, query, orderBy, limit, where, startAt, endAt, addDoc, updateDoc, doc, Timestamp } from 'firebase/firestore';
 import { db } from './firebase/config';
 import { LeadManagementService } from './services/leadManagement';
 
 function App() {
-  const [currentView, setCurrentView] = useState<'leads' | 'search' | 'search-grid' | 'advanced-search'>('leads');
+  const [currentView, setCurrentView] = useState<'leads' | 'search' | 'search-grid' | 'advanced-search' | 'subcollection-search' | 'reports'>('leads');
+  const [currentReport, setCurrentReport] = useState<string | null>(null);
   const [selectedResult, setSelectedResult] = useState<any>(null);
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [showSearchMenu, setShowSearchMenu] = useState(false);
+  const searchMenuRef = useRef<HTMLDivElement>(null);
   
   // Search functionality
   const [searchTerm, setSearchTerm] = useState('');
@@ -109,6 +114,20 @@ function App() {
 
     return () => clearTimeout(timeoutId);
   }, [searchTerm, searchFilters]);
+
+  // Close search menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchMenuRef.current && !searchMenuRef.current.contains(event.target as Node)) {
+        setShowSearchMenu(false);
+      }
+    };
+
+    if (showSearchMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showSearchMenu]);
 
   const clearSearch = () => {
     setSearchTerm('');
@@ -232,7 +251,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
+      <header className="bg-white shadow-sm border-b border-gray-200 relative z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-6">
@@ -251,38 +270,118 @@ function App() {
                   <Users className="h-4 w-4 mr-2" />
                   All Leads
                 </button>
+                
+                {/* Search Dropdown Menu */}
+                <div className="relative" ref={searchMenuRef}>
+                  <button
+                    onClick={() => {
+                      console.log('Search dropdown button clicked, current state:', showSearchMenu);
+                      setShowSearchMenu(!showSearchMenu);
+                    }}
+                    className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
+                      ['search', 'search-grid', 'advanced-search', 'subcollection-search'].includes(currentView)
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    Search
+                    <svg className="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {showSearchMenu && (
+                    <>
+                      {/* Backdrop */}
+                      <div className="fixed inset-0 z-[9998]" onClick={() => setShowSearchMenu(false)} />
+                      {/* Dropdown */}
+                      <div className="absolute left-0 mt-2 w-56 bg-white rounded-md shadow-xl z-[9999] border border-gray-200 overflow-hidden">
+                        {console.log('Search dropdown menu is being rendered')}
+                        <div className="py-1">
+                        <button
+                          onClick={() => {
+                            console.log('Basic Search clicked');
+                            setCurrentView('search');
+                            setShowSearchMenu(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm ${
+                            currentView === 'search'
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Search className="h-4 w-4 mr-3 inline" />
+                          Basic Search
+                          <span className="text-xs text-gray-500 ml-2">Quick search by name, email, phone</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            console.log('Search Grid clicked');
+                            setCurrentView('search-grid');
+                            setShowSearchMenu(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm ${
+                            currentView === 'search-grid'
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Filter className="h-4 w-4 mr-3 inline" />
+                          Search Grid
+                          <span className="text-xs text-gray-500 ml-2">Grid view with filters & pagination</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            console.log('Advanced Search clicked');
+                            setCurrentView('advanced-search');
+                            setShowSearchMenu(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm ${
+                            currentView === 'advanced-search'
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Search className="h-4 w-4 mr-3 inline" />
+                          Advanced Search
+                          <span className="text-xs text-gray-500 ml-2">Complex filters with AND conditions</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            console.log('Subcollection Search clicked');
+                            setCurrentView('subcollection-search');
+                            setShowSearchMenu(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm ${
+                            currentView === 'subcollection-search'
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Search className="h-4 w-4 mr-3 inline" />
+                          Subcollection Search
+                          <span className="text-xs text-gray-500 ml-2">Search activities, proposals, contracts</span>
+                        </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
                 <button
-                  onClick={() => setCurrentView('search')}
+                  onClick={() => setCurrentView('reports')}
                   className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
-                    currentView === 'search'
+                    currentView === 'reports'
                       ? 'bg-blue-100 text-blue-700'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  <Search className="h-4 w-4 mr-2" />
-                  Search
-                </button>
-                <button
-                  onClick={() => setCurrentView('search-grid')}
-                  className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
-                    currentView === 'search-grid'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <Filter className="h-4 w-4 mr-2" />
-                  Search Grid
-                </button>
-                <button
-                  onClick={() => setCurrentView('advanced-search')}
-                  className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
-                    currentView === 'advanced-search'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <Search className="h-4 w-4 mr-2" />
-                  Advanced Search
+                  <Users className="h-4 w-4 mr-2" />
+                  Reports
                 </button>
               </nav>
             </div>
@@ -304,10 +403,6 @@ function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
-          {/* Debug Connection Test */}
-          <div className="mb-6">
-            <TestConnection />
-          </div>
           
           {currentView === 'leads' ? (
             /* Leads List View */
@@ -330,6 +425,64 @@ function App() {
               onViewLead={handleViewLead}
               onEditLead={handleEditLead}
             />
+          ) : currentView === 'subcollection-search' ? (
+            /* Subcollection Search View */
+            <SubcollectionSearch
+              onResultClick={async (result) => {
+                console.log('Subcollection search result clicked:', result);
+                
+                try {
+                  // Get the lead data by document ID
+                  const leadDoc = await getDocs(query(collection(db, 'leads'), where('__name__', '==', result.leadId)));
+                  
+                  if (!leadDoc.empty) {
+                    const leadData = leadDoc.docs[0].data();
+                    const lead: Lead = {
+                      lead_id: result.leadId,
+                      ...leadData
+                    } as Lead;
+                    
+                    // Navigate to the lead detail view
+                    handleViewLead(lead);
+                    
+                    // Switch back to leads view to show the detail
+                    setCurrentView('leads');
+                  } else {
+                    console.error('Lead not found for ID:', result.leadId);
+                  }
+                } catch (error) {
+                  console.error('Error navigating to lead:', error);
+                }
+              }}
+            />
+          ) : currentView === 'reports' ? (
+            /* Reports View */
+            <div className="space-y-6">
+              {console.log('Reports view loaded, currentReport:', currentReport)}
+              {currentReport ? (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <button
+                        onClick={() => setCurrentReport(null)}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      >
+                        ← Back to Reports
+                      </button>
+                    </div>
+                  </div>
+                  {currentReport === 'lead-funnel' && <LeadFunnelReport />}
+                </div>
+              ) : (
+                <ReportsMenu 
+                  onReportSelect={(reportType) => {
+                    console.log('Report selected:', reportType);
+                    setCurrentReport(reportType);
+                  }}
+                  currentReport={currentReport || ''}
+                />
+              )}
+            </div>
           ) : (
                 /* Search View */
                 <div>

@@ -51,18 +51,19 @@ export interface Lead {
 // Status History Subcollection
 export interface StatusHistory {
   event_id: string;
-  from_status: LeadStatus;
+  previous_status: LeadStatus;
   to_status: LeadStatus;
-  transition_reason: string;
-  timestamp: Timestamp;
   changed_by: string;
+  changed_at: Timestamp;
+  reason: string;
+  auto_triggered: boolean;
   search_keywords: string[];
   lead_id: string;
   lead_name: string;
   lead_email: string;
   // Optional fields
   notes?: string;
-  automated?: boolean;
+  comments?: string; // Special comments about the status change
   previous_data?: any;
   new_data?: any;
 }
@@ -240,4 +241,72 @@ export type LeadFormData = Omit<Lead, 'lead_id' | 'created_at' | 'updated_at' | 
 export type ActivityFormData = Omit<Activity, 'activity_id' | 'timestamp' | 'search_keywords' | 'lead_id' | 'lead_name'>;
 export type ProposalFormData = Omit<Proposal, 'proposal_id' | 'sent_at' | 'search_keywords' | 'lead_id' | 'lead_name'>;
 export type ContractFormData = Omit<Contract, 'contract_id' | 'search_keywords' | 'lead_id' | 'lead_name'>;
+
+// Reporting and Analytics Types
+export interface LeadFunnelMetrics {
+  leadCount: number;
+  qualifiedLeads: number;
+  convertedLeads: number;
+  leadConversionRate: number;
+  leadToCustomerRate: number;
+  averageLeadAge: number;
+  leadSourceEffectiveness: LeadSourceMetrics[];
+  statusDistribution: StatusDistribution[];
+  conversionTimeframe: ConversionTimeframe[];
+}
+
+export interface LeadSourceMetrics {
+  source: string;
+  leadCount: number;
+  conversionRate: number;
+  averageValue: number;
+}
+
+export interface StatusDistribution {
+  status: LeadStatus;
+  count: number;
+  percentage: number;
+}
+
+export interface ConversionTimeframe {
+  period: string;
+  leadsCreated: number;
+  leadsConverted: number;
+  conversionRate: number;
+}
+
+export interface OpportunityPipelineMetrics {
+  opportunitiesInPipeline: number;
+  opportunityWinRate: number;
+  opportunityLossRate: number;
+  averageDealSize: number;
+  pipelineValue: number;
+  weightedPipelineValue: number;
+  averageProposalCount: number;
+  opportunityByStage: OpportunityStageMetrics[];
+  dealSizeDistribution: DealSizeMetrics[];
+}
+
+export interface OpportunityStageMetrics {
+  stage: string;
+  count: number;
+  totalValue: number;
+  averageValue: number;
+  probability: number;
+}
+
+export interface DealSizeMetrics {
+  range: string;
+  count: number;
+  percentage: number;
+  totalValue: number;
+}
+
+export interface ReportFilters {
+  dateFrom?: Date;
+  dateTo?: Date;
+  source?: string;
+  status?: LeadStatus;
+  assignedTo?: string;
+}
 
